@@ -22,4 +22,17 @@ app.use(express.urlencoded({ extended: true, limit: "16kb" }));
 // for public assets
 app.use(express.static('public'));
 
+
+// routes import
+
+import userRouter from './routes/user.route.js'
+
+
+
+// routes declarations
+
+app.use('/api/v1/users', userRouter)
+
+
+
 export default app;
