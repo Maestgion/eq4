@@ -7,13 +7,13 @@ import { ApiResponse } from "../utils/ApiResponse.js";
 const generateAccessAndRefreshTokens = async (userId) => {
     try {
         const user = await User.findById(userId);
-
         const accessToken = user.generateAccessToken();
         const refreshToken = user.generateRefreshToken();
 
         user.refreshTokens = refreshToken;
 
         await user.save({ validateBeforeSave: false });
+
 
         return { accessToken, refreshToken };
     } catch (error) {
@@ -100,7 +100,8 @@ const registerUser = asyncHandler(async (req, res) => {
         password,
     });
 
-    await user.save();
+    // await user.save(); 
+    // don't need this it will automatically do it
 
     //    to tackle the error at the time of db connection
 
@@ -132,9 +133,11 @@ const loginUser = asyncHandler(async (req, res) => {
 
     const { email, username, password } = req.body;
 
-    if (!username || !email) {
+    if (!username && !email) {
         throw new ApiError(400, "All field are required");
     }
+
+    // console.table([email, username, password])
 
     const user = await User.findOne({
         $or: [{ email }, { username }],
