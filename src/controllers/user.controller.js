@@ -3,7 +3,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { User } from "../models/user.model.js";
 import cloudinaryUpload from "../utils/cloudinary.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
-import jwt from "jsonwebtoken"
+import jwt from "jsonwebtoken";
 
 const generateAccessAndRefreshTokens = async (userId) => {
     try {
@@ -236,45 +236,193 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
         throw new ApiError(401, "unauthorized request");
     }
 
-    // now we are sending an error as a response instead of sending the ususal response because, here app is not working and it's needed to send an error response to avoid sending the fake 200 response 
+    // now we are sending an error as a response instead of sending the ususal response because, here app is not working and it's needed to send an error response to avoid sending the fake 200 response
 
-    try{
-          // verify
-    const decodedToken = jwt.verify(incomingRefreshToken, process.env.REFRESH_TOKEN_SECRET)
+    try {
+        // verify
+        const decodedToken = jwt.verify(
+            incomingRefreshToken,
+            process.env.REFRESH_TOKEN_SECRET
+        );
 
-    const user = await User.findById(decodedToken?.id);
+        const user = await User.findById(decodedToken?._id);
 
-    if(!user)
-    {
-        throw new ApiError(401, "unauthorized request");
+        if (!user) {
+            throw new ApiError(401, "unauthorized request");
+        }
+
+        if (incomingRefreshToken !== user?.refreshTokens) {
+            throw new ApiError(401, "refresh token is expired or used");
+        }
+
+        const options = {
+            httpOnly: true,
+            secure: true,
+        };
+
+        // options ko global bhi rakh sakte hai kafi baar use ho raha hai
+
+        const { accessToken, newRefreshToken } =
+            await generateAccessAndRefreshTokens(user._id);
+
+        return res
+            .status(200)
+            .cookie("accessToken", accessToken, options)
+            .cookie("refreshToken", newRefreshToken, options)
+            .json(
+                new ApiResponse(
+                    200,
+                    {
+                        accessToken,
+                        refreshToken: newRefreshToken,
+                    },
+                    "token refreshed successfully"
+                )
+            );
+    } catch (error) {
+        throw new ApiError(
+            401,
+            error?.message || "something went wrong while refreshing the tokens"
+        );
     }
-
-    if(incomingRefreshToken !== user?.refreshTokens)
-    {
-        throw new ApiError(401, "refresh token is expired or used");
-    }
-
-    const options = {
-        httpOnly: true,
-        secure: true
-    }
-
-    // options ko global bhi rakh sakte hai kafi baar use ho raha hai
-
-    const {accessToken, newRefreshToken} = await generateAccessAndRefreshTokens(user._id)
-
-    return res.status(200).cookie("accessToken", accessToken, options).cookie("refreshToken", newRefreshToken, options).json(
-        new ApiResponse(200, {
-            accessToken,
-            refreshToken: newRefreshToken
-            
-        } ,"token refreshed successfully")
-    )
-    }catch(error)
-    {
-        throw new ApiError(401,error?.message || "something went wrong while refreshing the tokens")
-    }
-
 });
 
-export { registerUser, loginUser, logoutUser, refreshAccessToken };
+const changePassword = asyncHandler(async (req, res) => {
+    // verification to middleware se ho jayega
+    // take the fields required
+    // grab the user details
+    // find the User in the db
+
+    const { oldPassword, newPassword } = req.body;
+
+    const user = await User.findById(req.user?._id);
+
+    const isPasswordValid = await user.isPasswordCorrect(oldPassword);
+
+    if (!isPasswordValid) {
+        throw new ApiError(400, "Invalid old password");
+    }
+
+    user.password = newPassword;
+    await user.save({ validateBeforeSave: false });
+
+    return res
+        .status(200)
+        .json(new ApiResponse(200, "Password changed Successfully"));
+});
+
+const getCurrentUser = asyncHandler(async (req, res)=>{
+    // grab the user info from the user stored in the token
+    // send it back as a response
+
+    return res.status(200).json(new ApiResponse(200, req.user, "User fetched successfully"))
+})
+
+
+const updateAccountDetails = asyncHandler(async (req, res)=>{
+
+    // decide on which details to take as per the modifications allowed to the user
+    // validation
+    // find the user
+    // look for the changes 
+    // save the changes in the database
+    // send the response
+
+    // file update ka alag endpoint as vahi use fatafat image change ka option deke db me update kara denge instead of updating it here and slowing down the process as text data bhi jata hai phir 
+
+    const {username, fullName, email} = req.body
+
+    // yaha par sabko hi validate kar lete hai ab kya selective change ho raha vo info bhejne ke liye frontend hai na
+
+    if(!username || !fullName  || !email)
+    {
+        throw new ApiError(400,"Please provide all fields")
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+        req.user?._id, 
+        {
+            $set: {
+                username,
+                fullName,
+                email
+            }
+        },
+        {
+            new: true
+        }
+     ).select("-password -refreshToken")
+    
+    
+     return res.status(200).json(
+        new ApiResponse(200, updatedUser, "account details updated successfully")
+     )
+
+})
+
+const updateUserAvatar = asyncHandler(async (req, res)=>{
+    // get file from the req
+    // upload on the cloudinary
+    // update the db
+
+    const avatarLocalPath = req.file?.path
+
+    if(!avatarLocalPath)
+    {
+        throw new ApiError(400,'No image provided')
+    }
+
+    const avatar = await cloudinaryUpload(avatarLocalPath)
+
+    if(!avatar.url)
+    {
+        throw new ApiError(500,"Server Error : Failed to upload Image")
+    }
+
+    const user = await  User.findByIdAndUpdate(req.user?._id, {
+        $set:{
+            avatar: avatar?.url
+        }
+    }, {new: true} ).select("-password -refreshToken")
+
+    return res.status(200).json(200, user, "avatar updated successfully")
+
+})
+
+const updateUserCoverImage = asyncHandler(async (req, res)=>{
+
+    const coverImagaeLocalPath = req.file?.path
+
+    if(!coverImagaeLocalPath)
+    {
+        throw new ApiError(400,'No image provided')
+    }
+
+    const coverImagae = await cloudinaryUpload(avatarLocalPath)
+
+    if(!coverImagae.url)
+    {
+        throw new ApiError(500,"Server Error : Failed to upload Image")
+    }
+
+    const user = await  User.findByIdAndUpdate(req.user?._id, {
+        $set:{
+            coverImagae: coverImagae?.url
+        }
+    }, {new: true} ).select("-password -refreshToken")
+
+    return res.status(200).json(200, user, "cover image updated successfully")
+
+})
+
+export {
+    registerUser,
+    loginUser,
+    logoutUser,
+    refreshAccessToken,
+    changePassword,
+    getCurrentUser,
+    updateAccountDetails,
+    updateUserAvatar,
+    updateUserCoverImage
+};
