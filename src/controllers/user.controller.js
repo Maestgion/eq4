@@ -3,6 +3,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { User } from "../models/user.model.js";
 import cloudinaryUpload from "../utils/cloudinary.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
+import jwt from "jsonwebtoken"
 
 const generateAccessAndRefreshTokens = async (userId) => {
     try {
@@ -13,7 +14,6 @@ const generateAccessAndRefreshTokens = async (userId) => {
         user.refreshTokens = refreshToken;
 
         await user.save({ validateBeforeSave: false });
-
 
         return { accessToken, refreshToken };
     } catch (error) {
@@ -100,7 +100,7 @@ const registerUser = asyncHandler(async (req, res) => {
         password,
     });
 
-    // await user.save(); 
+    // await user.save();
     // don't need this it will automatically do it
 
     //    to tackle the error at the time of db connection
@@ -161,51 +161,120 @@ const loginUser = asyncHandler(async (req, res) => {
 
     // updating the user because here it's still empty as the token method is called later
 
-    // can also update that particular field also 
-    
-    const loggedUser = await User.findById(user._id).select("-password -refreshToken")
+    // can also update that particular field also
+
+    const loggedUser = await User.findById(user._id).select(
+        "-password -refreshToken"
+    );
 
     const options = {
         httpOnly: true,
         secure: true,
+    };
 
-    } 
-
-    return res.status(200).cookie("accessToken", accessToken, options).cookie("refreshToken", refreshToken, options).json(
-        new ApiResponse(200,
-            {
-                user: loggedUser, accessToken, refreshToken
-            },
-            "User logged in successfully")
-    )
+    return res
+        .status(200)
+        .cookie("accessToken", accessToken, options)
+        .cookie("refreshToken", refreshToken, options)
+        .json(
+            new ApiResponse(
+                200,
+                {
+                    user: loggedUser,
+                    accessToken,
+                    refreshToken,
+                },
+                "User logged in successfully"
+            )
+        );
 
     // ye achhi practice nahi hai user ko tokens ko bhejna but, bas ek corner case cover karne ke liye hi if user wants to set it in localstorage by himself
 
     // set in the cookie
 });
 
-const logoutUser = asyncHandler(async  (req, res) => {
-
+const logoutUser = asyncHandler(async (req, res) => {
     // clear this cookie
     // reset the refreshToken
 
-   await User.findByIdAndUpdate(req.user._id, {
-    $set: {
-        refreshTokens: undefined
-    }}, 
-    {
-        new: true
+    await User.findByIdAndUpdate(
+        req.user._id,
+        {
+            $set: {
+                refreshTokens: undefined,
+            },
+        },
+        {
+            new: true,
+        }
+    );
+
+    const options = {
+        httpOnly: true,
+        secure: true,
+    };
+
+    return res
+        .status(200)
+        .clearCookie("accessToken", options)
+        .clearCookie("refreshToken", options)
+        .json(new ApiResponse(200, "User logged out successfully"));
+});
+
+const refreshAccessToken = asyncHandler(async (req, res) => {
+    // firstly, use the cookies to access the refreshToken
+    // verify token
+    // get the decoded token
+    // use the id in the payload to access the user
+    // match the tokens
+
+    const incomingRefreshToken =
+        req.cookies.refreshToken || req.body.refreshToken;
+    // accessing from body if someone is using mobile app
+
+    if (!incomingRefreshToken) {
+        throw new ApiError(401, "unauthorized request");
     }
-   )
+
+    // now we are sending an error as a response instead of sending the ususal response because, here app is not working and it's needed to send an error response to avoid sending the fake 200 response 
+
+    try{
+          // verify
+    const decodedToken = jwt.verify(incomingRefreshToken, process.env.REFRESH_TOKEN_SECRET)
+
+    const user = await User.findById(decodedToken?.id);
+
+    if(!user)
+    {
+        throw new ApiError(401, "unauthorized request");
+    }
+
+    if(incomingRefreshToken !== user?.refreshTokens)
+    {
+        throw new ApiError(401, "refresh token is expired or used");
+    }
 
     const options = {
         httpOnly: true,
         secure: true
     }
 
-    return res.status(200).clearCookie("accessToken", options).clearCookie("refreshToken", options).json(
-        new ApiResponse(200, "User logged out successfully")
-    )
-} )
+    // options ko global bhi rakh sakte hai kafi baar use ho raha hai
 
-export { registerUser, loginUser, logoutUser };
+    const {accessToken, newRefreshToken} = await generateAccessAndRefreshTokens(user._id)
+
+    return res.status(200).cookie("accessToken", accessToken, options).cookie("refreshToken", newRefreshToken, options).json(
+        new ApiResponse(200, {
+            accessToken,
+            refreshToken: newRefreshToken
+            
+        } ,"token refreshed successfully")
+    )
+    }catch(error)
+    {
+        throw new ApiError(401,error?.message || "something went wrong while refreshing the tokens")
+    }
+
+});
+
+export { registerUser, loginUser, logoutUser, refreshAccessToken };

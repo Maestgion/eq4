@@ -26,7 +26,7 @@ const user = await User.findById(decodedToken?._id).select("-password -refreshTo
 
 if(!user)
 {   
-    // TODO: discuss about frontend
+    // TODO: discuss about frontend. conclusion: led to the creation of a new endpoint so that user can generate the accessToken and at that refreshtoken will also be generated. I'm not clear as of now but, will go through it 
     throw new ApiError(401, "Not Authorized/ invalid token provided ");
 }
 
@@ -37,3 +37,6 @@ next();
         throw new ApiError(401, error?.message || "Invalid access token")
     }
 });
+
+
+// TODO:  https://developers.google.com/identity/protocols/oauth2
