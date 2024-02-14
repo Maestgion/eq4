@@ -4,6 +4,7 @@ import { User } from "../models/user.model.js";
 import cloudinaryUpload from "../utils/cloudinary.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import jwt from "jsonwebtoken";
+import mongoose from "mongoose"
 
 const generateAccessAndRefreshTokens = async (userId) => {
     try {
@@ -422,7 +423,7 @@ const updateUserCoverImage = asyncHandler(async (req, res) => {
     return res.status(200).json(200, user, "cover image updated successfully");
 });
 
-const getUserProfile = asyncHandler(async (req, res) => {
+const getUserChannelProfile = asyncHandler(async (req, res) => {
     // get username from params
     // aggregations: match, lookup for subscribers, lookup for subscriptions, sum
     // adding the fields including isSubscribed
@@ -466,7 +467,9 @@ const getUserProfile = asyncHandler(async (req, res) => {
                 },
                 isSubscribed: {
                     $cond: {
-                        if: [req.user?._id, "$subscribers.subscriber"],
+                        if: {
+                            $in: [req.user?._id, "$subscribers.subscriber"]
+                        },
                         then: true,
                         else: false,
                     },
@@ -504,6 +507,61 @@ const getUserProfile = asyncHandler(async (req, res) => {
         );
 });
 
+const getWatchHistory = asyncHandler(async (req, res)=>{
+    
+    // const userId = req.user._id
+    // now this only gives the string not the mongodb object id. It's mongoose who converts into the mongodb object id. 
+    // But when we are using pipelines, the entire code executes directly into the mongodb server.Thus, we can't use req.user._id directly as it's only a string not a mongodb object id.
+    // therefore we need to convert it and we'll use mongoose for this conversion
+
+    // sub-pipeline is being used here for the nested approach
+
+    const user = await User.aggregate(
+        {
+            $match :{
+                _id: new mongoose.Types.ObjectId(req.user._id)
+            },
+            $lookup:{
+                from: "videos",
+                localField: "watchHistory",
+                foreignField: "_id",
+                as: "watchHistory",
+                pipeline:[
+                    {
+                        $lookup:{
+                            from: "users",
+                            localField: "owner",
+                            foreignField: "_id",
+                            as: "owner",
+                            pipeline: [
+                                {
+                                    $project:{
+                                        fullName:1,
+                                        username: 1,
+                                        avatar: 1
+                                    } 
+                                }
+                            ]
+                        }
+                    }, 
+                    {
+                        $addFields:{
+                            owner:{
+                                $first: "$owner"
+                            }
+                        }
+                    }
+                ]
+            }
+        }
+    )
+
+        return res(200).status(200).json(
+            new ApiResponse(200, 
+                user[0].watchHistory, "watch history fetched successfully")
+        )
+})
+
 export {
     registerUser,
     loginUser,
@@ -514,5 +572,6 @@ export {
     updateAccountDetails,
     updateUserAvatar,
     updateUserCoverImage,
-    getUserProfile,
+    getUserChannelProfile,
+    getWatchHistory
 };
