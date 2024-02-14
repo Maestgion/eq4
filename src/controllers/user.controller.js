@@ -311,109 +311,198 @@ const changePassword = asyncHandler(async (req, res) => {
         .json(new ApiResponse(200, "Password changed Successfully"));
 });
 
-const getCurrentUser = asyncHandler(async (req, res)=>{
+const getCurrentUser = asyncHandler(async (req, res) => {
     // grab the user info from the user stored in the token
     // send it back as a response
 
-    return res.status(200).json(new ApiResponse(200, req.user, "User fetched successfully"))
-})
+    return res
+        .status(200)
+        .json(new ApiResponse(200, req.user, "User fetched successfully"));
+});
 
-
-const updateAccountDetails = asyncHandler(async (req, res)=>{
-
+const updateAccountDetails = asyncHandler(async (req, res) => {
     // decide on which details to take as per the modifications allowed to the user
     // validation
     // find the user
-    // look for the changes 
+    // look for the changes
     // save the changes in the database
     // send the response
 
-    // file update ka alag endpoint as vahi use fatafat image change ka option deke db me update kara denge instead of updating it here and slowing down the process as text data bhi jata hai phir 
+    // file update ka alag endpoint as vahi use fatafat image change ka option deke db me update kara denge instead of updating it here and slowing down the process as text data bhi jata hai phir
 
-    const {username, fullName, email} = req.body
+    const { username, fullName, email } = req.body;
 
     // yaha par sabko hi validate kar lete hai ab kya selective change ho raha vo info bhejne ke liye frontend hai na
 
-    if(!username || !fullName  || !email)
-    {
-        throw new ApiError(400,"Please provide all fields")
+    if (!username || !fullName || !email) {
+        throw new ApiError(400, "Please provide all fields");
     }
 
     const updatedUser = await User.findByIdAndUpdate(
-        req.user?._id, 
+        req.user?._id,
         {
             $set: {
                 username,
                 fullName,
-                email
-            }
+                email,
+            },
         },
         {
-            new: true
+            new: true,
         }
-     ).select("-password -refreshToken")
-    
-    
-     return res.status(200).json(
-        new ApiResponse(200, updatedUser, "account details updated successfully")
-     )
+    ).select("-password -refreshToken");
 
-})
+    return res
+        .status(200)
+        .json(
+            new ApiResponse(
+                200,
+                updatedUser,
+                "account details updated successfully"
+            )
+        );
+});
 
-const updateUserAvatar = asyncHandler(async (req, res)=>{
+const updateUserAvatar = asyncHandler(async (req, res) => {
     // get file from the req
     // upload on the cloudinary
     // update the db
 
-    const avatarLocalPath = req.file?.path
+    // TODO: DELETE OLD IMAGE
 
-    if(!avatarLocalPath)
-    {
-        throw new ApiError(400,'No image provided')
+    const avatarLocalPath = req.file?.path;
+
+    if (!avatarLocalPath) {
+        throw new ApiError(400, "No image provided");
     }
 
-    const avatar = await cloudinaryUpload(avatarLocalPath)
+    const avatar = await cloudinaryUpload(avatarLocalPath);
 
-    if(!avatar.url)
-    {
-        throw new ApiError(500,"Server Error : Failed to upload Image")
+    if (!avatar.url) {
+        throw new ApiError(500, "Server Error : Failed to upload Image");
     }
 
-    const user = await  User.findByIdAndUpdate(req.user?._id, {
-        $set:{
-            avatar: avatar?.url
-        }
-    }, {new: true} ).select("-password -refreshToken")
+    const user = await User.findByIdAndUpdate(
+        req.user?._id,
+        {
+            $set: {
+                avatar: avatar?.url,
+            },
+        },
+        { new: true }
+    ).select("-password -refreshToken");
 
-    return res.status(200).json(200, user, "avatar updated successfully")
+    return res.status(200).json(200, user, "avatar updated successfully");
+});
 
-})
+const updateUserCoverImage = asyncHandler(async (req, res) => {
+    // TODO: DELETE COVER IMAGE
+    const coverImagaeLocalPath = req.file?.path;
 
-const updateUserCoverImage = asyncHandler(async (req, res)=>{
-
-    const coverImagaeLocalPath = req.file?.path
-
-    if(!coverImagaeLocalPath)
-    {
-        throw new ApiError(400,'No image provided')
+    if (!coverImagaeLocalPath) {
+        throw new ApiError(400, "No image provided");
     }
 
-    const coverImagae = await cloudinaryUpload(avatarLocalPath)
+    const coverImagae = await cloudinaryUpload(avatarLocalPath);
 
-    if(!coverImagae.url)
-    {
-        throw new ApiError(500,"Server Error : Failed to upload Image")
+    if (!coverImagae.url) {
+        throw new ApiError(500, "Server Error : Failed to upload Image");
     }
 
-    const user = await  User.findByIdAndUpdate(req.user?._id, {
-        $set:{
-            coverImagae: coverImagae?.url
-        }
-    }, {new: true} ).select("-password -refreshToken")
+    const user = await User.findByIdAndUpdate(
+        req.user?._id,
+        {
+            $set: {
+                coverImagae: coverImagae?.url,
+            },
+        },
+        { new: true }
+    ).select("-password -refreshToken");
 
-    return res.status(200).json(200, user, "cover image updated successfully")
+    return res.status(200).json(200, user, "cover image updated successfully");
+});
 
-})
+const getUserProfile = asyncHandler(async (req, res) => {
+    // get username from params
+    // aggregations: match, lookup for subscribers, lookup for subscriptions, sum
+    // adding the fields including isSubscribed
+    // then finally project
+
+    const { username } = req.params;
+
+    if (!username?.trim()) {
+        throw new ApiError(400, "Username is required");
+    }
+
+    const channel = await User.aggregate([
+        {
+            $match: {
+                username: username?.toLowerCase(),
+            },
+        },
+        {
+            $lookup: {
+                from: "subscriptions",
+                localField: "_id",
+                foreignField: "channel",
+                as: "subscribers",
+            },
+        },
+        {
+            $lookup: {
+                from: "subscriptions",
+                localField: "_id",
+                foreignField: "subscriber",
+                as: "subscriptions",
+            },
+        },
+        {
+            $addFields: {
+                subscribersCount: {
+                    $size: "$subscribers",
+                },
+                subscriptionsCount: {
+                    $size: "$subsctiptions",
+                },
+                isSubscribed: {
+                    $cond: {
+                        if: [req.user?._id, "$subscribers.subscriber"],
+                        then: true,
+                        else: false,
+                    },
+                },
+            },
+        },
+        {
+            $project: {
+                fullName: 1,
+                username: 1,
+                subscribersCount: 1,
+                subscriptionsCount: 1,
+                isSubscribed: 1,
+                avatar: 1,
+                coverImage: 1,
+                email: 1,
+            },
+        },
+    ]);
+
+    console.log(channel);
+
+    if (!channel?.length) {
+        throw new ApiError(404, "channel does not exist");
+    }
+
+    return res
+        .status(200)
+        .json(
+            new ApiResponse(
+                200,
+                channel[0],
+                "User channel fetched successfully"
+            )
+        );
+});
 
 export {
     registerUser,
@@ -424,5 +513,6 @@ export {
     getCurrentUser,
     updateAccountDetails,
     updateUserAvatar,
-    updateUserCoverImage
+    updateUserCoverImage,
+    getUserProfile,
 };
